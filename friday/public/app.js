@@ -205,12 +205,15 @@ async function askFriday(userText) {
     flushSentences(true); // speak any trailing fragment
     history.push({ role: "assistant", content: full });
 
-    // Wait for speech to drain, then listen again.
+    // Wait for speech to drain, then give iOS time to release the audio session
+    // before handing the mic back to SpeechRecognition.
     await waitForSpeechEnd();
+    await new Promise(r => setTimeout(r, 500));
   } catch (err) {
     reply.textContent = "(Friday had a problem: " + err.message + ")";
     enqueueSpeak("Sorry, I ran into a problem.");
     await waitForSpeechEnd();
+    await new Promise(r => setTimeout(r, 500));
   }
 
   if (active) startListening();
@@ -269,8 +272,11 @@ function buildRecognition() {
 
   r.onend = () => {
     recognizing = false;
-    // Restart only if we're between turns (not thinking/speaking).
-    if (active && document.body.className === "listening") startListening();
+    // Restart only if idle (not thinking/speaking). Delay to debounce rapid loops
+    // caused by iOS ending recognition before the audio session is fully released.
+    if (active && document.body.className === "listening") {
+      setTimeout(startListening, 300);
+    }
   };
 
   return r;
@@ -289,7 +295,6 @@ function startSession() {
   // Unlock audio playback on iOS within the tap gesture (both voice modes).
   unlockAudio();
 
-  recognition = buildRecognition();
   startListening();
 }
 
