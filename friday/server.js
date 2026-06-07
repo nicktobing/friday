@@ -50,6 +50,50 @@ const SYSTEM_PROMPT = fs.readFileSync(
   "utf8"
 );
 
+// ─── Mem0 memory ─────────────────────────────────────────────────────────────
+
+const MEM0_API_KEY = process.env.MEM0_API_KEY;
+const MEM0_USER_ID = process.env.MEM0_USER_ID || "friday-user";
+const MEM0_BASE = "https://api.mem0.ai/v1";
+
+async function searchMemories(query) {
+  if (!MEM0_API_KEY) return "";
+  try {
+    const res = await fetch(`${MEM0_BASE}/memories/search/`, {
+      method: "POST",
+      headers: { Authorization: `Token ${MEM0_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query, user_id: MEM0_USER_ID, limit: 10 }),
+    });
+    const data = await res.json();
+    const items = Array.isArray(data) ? data : data.results || [];
+    if (!items.length) return "";
+    return "\n\n## What you remember about the user:\n" +
+      items.map((m) => `- ${m.memory}`).join("\n");
+  } catch (err) {
+    console.error("Mem0 search error:", err?.message);
+    return "";
+  }
+}
+
+async function addMemory(messages) {
+  if (!MEM0_API_KEY) return;
+  try {
+    await fetch(`${MEM0_BASE}/memories/`, {
+      method: "POST",
+      headers: { Authorization: `Token ${MEM0_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, user_id: MEM0_USER_ID }),
+    });
+  } catch (err) {
+    console.error("Mem0 add error:", err?.message);
+  }
+}
+
+if (MEM0_API_KEY) {
+  console.log("  Memory: Mem0 connected");
+} else {
+  console.log("  Memory: not configured (add MEM0_API_KEY to .env)");
+}
+
 // ─── Google Calendar ──────────────────────────────────────────────────────────
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -291,15 +335,21 @@ app.post("/chat", async (req, res) => {
       ...(googleCalendar ? CALENDAR_TOOLS : []),
     ];
 
+    // Fetch relevant memories and inject into system prompt
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")?.content || "";
+    const memoryContext = await searchMemories(lastUserMsg);
+    const systemWithMemory = SYSTEM_PROMPT + memoryContext;
+
     let currentMessages = [...messages];
     let iterations = 0;
     const MAX_ITERATIONS = 6;
+    let finalText = "";
 
     while (iterations++ < MAX_ITERATIONS) {
       const response = await client.messages.create({
         model: MODEL,
         max_tokens: 1024,
-        system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+        system: [{ type: "text", text: systemWithMemory, cache_control: { type: "ephemeral" } }],
         tools,
         messages: currentMessages,
       });
@@ -310,13 +360,16 @@ app.post("/chat", async (req, res) => {
       );
 
       if (calendarCalls.length === 0) {
-        // No custom tools needed — send the final text
-        const text = response.content
-          .filter((b) => b.type === "text")
-          .map((b) => b.text)
-          .join("");
-        res.write(`data: ${JSON.stringify({ text })}\n\n`);
+        finalText = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+        res.write(`data: ${JSON.stringify({ text: finalText })}\n\n`);
         res.write("data: [DONE]\n\n");
+        // Save this turn to memory in the background
+        if (finalText) {
+          addMemory([
+            { role: "user", content: lastUserMsg },
+            { role: "assistant", content: finalText },
+          ]).catch(() => {});
+        }
         return;
       }
 
