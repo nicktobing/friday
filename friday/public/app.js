@@ -38,7 +38,7 @@ const NUM_MEL = 32;
 const MEL_F_MIN = 80;
 const MEL_F_MAX = 3400;
 const FFT_FRAME = 1024;
-const ID_THRESHOLD = 0.90;
+const ID_THRESHOLD = 0.75;
 
 function hzToMel(hz) { return 1127 * Math.log(1 + hz / 700); }
 function melToHz(mel) { return 700 * (Math.exp(mel / 1127) - 1); }
@@ -162,14 +162,16 @@ async function identifySpeaker() {
   const profiles = loadSpeakerProfiles();
   if (!profiles.length) return null;
   const audio = stopCapture();
-  if (!audio) return null;
+  if (!audio) { console.log("[SpeakerID] no audio captured"); return null; }
+  console.log(`[SpeakerID] audio=${audio.length} samples @ ${captureSampleRate}Hz`);
   const tmpl = computeTemplate(audio, captureSampleRate);
-  if (!tmpl) return null;
+  if (!tmpl) { console.log("[SpeakerID] template computation failed"); return null; }
   let best = null, bestScore = -Infinity;
   for (const p of profiles) {
     const score = cosineSim(tmpl, b64ToTemplate(p.templateB64));
     if (score > bestScore) { bestScore = score; best = p.name; }
   }
+  console.log(`[SpeakerID] best="${best}" score=${bestScore.toFixed(3)} threshold=${ID_THRESHOLD}`);
   return bestScore >= ID_THRESHOLD ? best : null;
 }
 
