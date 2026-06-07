@@ -46,6 +46,7 @@ let ttsMode = "browser";
 let speakQueue = [];
 let speaking = false;
 let currentAudio = null;
+let audioEl = null; // persistent element unlocked on first tap — iOS blocks play() after async gaps
 
 async function loadConfig() {
   try {
@@ -110,12 +111,13 @@ async function speakEleven(text) {
   if (!res.ok) throw new Error("tts " + res.status);
   const url = URL.createObjectURL(await res.blob());
   return new Promise(resolve => {
-    const audio = new Audio(url);
+    const audio = audioEl || new Audio();
     currentAudio = audio;
     audio.playbackRate = 1.0;
     const done = () => { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; resolve(); };
     audio.onended = done;
     audio.onerror = done;
+    audio.src = url;
     audio.play().catch(done);
   });
 }
@@ -136,12 +138,12 @@ function isSpeaking() {
 // Unlock audio playback inside the user's tap (required by iOS for both modes).
 function unlockAudio() {
   try { speechSynthesis.speak(new SpeechSynthesisUtterance(" ")); } catch (_) {}
-  try {
-    const silent = new Audio(
+  if (!audioEl) {
+    audioEl = new Audio(
       "data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQxAADB8AhSmxhIIEVCSiJrDCQBTcu3UrAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     );
-    silent.play().catch(() => {});
-  } catch (_) {}
+    audioEl.play().catch(() => {});
+  }
 }
 
 // ---------- Talking to the brain ----------
