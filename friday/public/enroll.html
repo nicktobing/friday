@@ -8,127 +8,69 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #0a0a0f;
-      color: #e8e8f0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
+      background: #0a0a0f; color: #e8e8f0;
+      min-height: 100vh; display: flex;
+      align-items: center; justify-content: center; padding: 24px;
     }
     .card {
-      background: #13131a;
-      border: 1px solid #2a2a3a;
-      border-radius: 20px;
-      padding: 40px;
-      max-width: 440px;
-      width: 100%;
+      background: #13131a; border: 1px solid #2a2a3a;
+      border-radius: 20px; padding: 40px; max-width: 440px; width: 100%;
     }
     h1 { font-size: 1.5rem; margin-bottom: 8px; }
     p.sub { color: #888; font-size: 0.9rem; margin-bottom: 28px; line-height: 1.5; }
     label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 6px; }
-    input[type="text"], input[type="password"] {
-      width: 100%;
-      background: #1e1e2e;
-      border: 1px solid #3a3a4a;
-      border-radius: 10px;
-      color: #e8e8f0;
-      font-size: 1rem;
-      padding: 12px 16px;
-      margin-bottom: 20px;
-      outline: none;
+    input[type="text"] {
+      width: 100%; background: #1e1e2e; border: 1px solid #3a3a4a;
+      border-radius: 10px; color: #e8e8f0; font-size: 1rem;
+      padding: 12px 16px; margin-bottom: 20px; outline: none;
     }
     input:focus { border-color: #6060ff; }
     button {
-      width: 100%;
-      padding: 14px;
-      border-radius: 12px;
-      border: none;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.2s;
-      margin-bottom: 10px;
+      width: 100%; padding: 14px; border-radius: 12px; border: none;
+      font-size: 1rem; font-weight: 600; cursor: pointer;
+      transition: opacity 0.2s; margin-bottom: 10px;
     }
     button:disabled { opacity: 0.4; cursor: default; }
-    #btnEnroll { background: #4040cc; color: #fff; }
+    #btnRecord { background: #4040cc; color: #fff; }
     .progress-wrap {
-      background: #1e1e2e;
-      border-radius: 8px;
-      height: 10px;
-      margin: 16px 0 8px;
-      overflow: hidden;
-      display: none;
+      background: #1e1e2e; border-radius: 8px; height: 10px;
+      margin: 16px 0 8px; overflow: hidden; display: none;
     }
-    .progress-bar {
-      height: 100%;
-      background: #6060ff;
-      width: 0%;
-      transition: width 0.3s;
-    }
-    .progress-label {
-      font-size: 0.85rem;
-      color: #aaa;
-      text-align: center;
-      margin-bottom: 16px;
-      display: none;
-    }
-    .status {
-      margin-top: 12px;
-      font-size: 0.9rem;
-      color: #aaa;
-      text-align: center;
-      min-height: 24px;
-    }
+    .progress-bar { height: 100%; background: #6060ff; width: 0%; transition: width 0.5s; }
+    .progress-label { font-size: 0.85rem; color: #aaa; text-align: center; margin-bottom: 16px; display: none; }
+    .timer { font-size: 2rem; font-weight: 700; text-align: center; margin: 12px 0; color: #6060ff; display: none; }
+    .pulse { animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .status { margin-top: 12px; font-size: 0.9rem; color: #aaa; text-align: center; min-height: 24px; }
     .status.ok { color: #44cc88; }
     .status.err { color: #ff6666; }
     .enrolled-list { margin-top: 28px; border-top: 1px solid #2a2a3a; padding-top: 20px; }
     .enrolled-list h3 { font-size: 0.85rem; color: #666; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
     .speaker-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      background: #1e1e2e;
-      border: 1px solid #3a3a4a;
-      border-radius: 20px;
-      padding: 6px 14px;
-      margin: 4px;
-      font-size: 0.85rem;
+      display: inline-flex; align-items: center; gap: 8px;
+      background: #1e1e2e; border: 1px solid #3a3a4a;
+      border-radius: 20px; padding: 6px 14px; margin: 4px; font-size: 0.85rem;
     }
     .speaker-chip button {
-      background: none;
-      border: none;
-      color: #ff6666;
-      cursor: pointer;
-      font-size: 0.75rem;
-      padding: 0;
-      width: auto;
-      font-weight: 400;
-      margin-bottom: 0;
+      background: none; border: none; color: #ff6666;
+      cursor: pointer; font-size: 0.75rem; padding: 0; width: auto; font-weight: 400; margin-bottom: 0;
     }
-    .hint { font-size: 0.78rem; color: #555; margin-top: -14px; margin-bottom: 18px; }
   </style>
 </head>
 <body>
 <div class="card">
   <h1>Voice Enrolment</h1>
-  <p class="sub">Friday learns your voice using Picovoice Eagle. Speak naturally for about 30 seconds — tell her about yourself, your day, anything.</p>
-
-  <label for="accessKey">Picovoice AccessKey</label>
-  <input type="password" id="accessKey" placeholder="Paste key from console.picovoice.ai" autocomplete="off" />
-  <p class="hint">Free personal key — get it at <a href="https://console.picovoice.ai/" target="_blank" style="color:#6060ff">console.picovoice.ai</a></p>
+  <p class="sub">Friday learns your voice from a 25-second sample. Speak naturally — tell her about your day, your work, anything. No account needed.</p>
 
   <label for="nameInput">Your name</label>
   <input type="text" id="nameInput" placeholder="e.g. Nick" autocomplete="off" />
 
-  <button id="btnEnroll">Start Enrolment</button>
+  <button id="btnRecord">Start Recording</button>
 
-  <div class="progress-wrap" id="progressWrap">
-    <div class="progress-bar" id="progressBar"></div>
-  </div>
-  <div class="progress-label" id="progressLabel">0% enrolled — keep speaking…</div>
-
-  <div class="status" id="status">Enter your name and AccessKey, then press Start.</div>
+  <div class="timer" id="timer">0s</div>
+  <div class="progress-wrap" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
+  <div class="progress-label" id="progressLabel"></div>
+  <div class="status" id="status">Enter your name and press Start Recording.</div>
 
   <div class="enrolled-list" id="enrolledSection" style="display:none">
     <h3>Enrolled speakers</h3>
@@ -136,206 +78,222 @@
   </div>
 </div>
 
-<script src="/eagle/eagle-web.js"></script>
 <script>
-  const accessKeyEl = document.getElementById("accessKey");
+  /* ── Voice fingerprinting (same algorithm as app.js) ── */
+  const NUM_MEL = 32, MEL_F_MIN = 80, MEL_F_MAX = 3400, FFT_FRAME = 1024;
+
+  function hzToMel(hz) { return 1127 * Math.log(1 + hz / 700); }
+  function melToHz(mel) { return 700 * (Math.exp(mel / 1127) - 1); }
+
+  function fftInPlace(re, im) {
+    const n = re.length;
+    let j = 0;
+    for (let i = 1; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) {
+        let t = re[i]; re[i] = re[j]; re[j] = t;
+        t = im[i]; im[i] = im[j]; im[j] = t;
+      }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = -2 * Math.PI / len;
+      const wRe = Math.cos(ang), wIm = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let cRe = 1, cIm = 0;
+        for (let k = 0; k < (len >> 1); k++) {
+          const uRe = re[i+k], uIm = im[i+k];
+          const vRe = re[i+k+(len>>1)]*cRe - im[i+k+(len>>1)]*cIm;
+          const vIm = re[i+k+(len>>1)]*cIm + im[i+k+(len>>1)]*cRe;
+          re[i+k] = uRe+vRe; im[i+k] = uIm+vIm;
+          re[i+k+(len>>1)] = uRe-vRe; im[i+k+(len>>1)] = uIm-vIm;
+          const nr = cRe*wRe - cIm*wIm; cIm = cRe*wIm + cIm*wRe; cRe = nr;
+        }
+      }
+    }
+  }
+
+  function buildMelFilters(sr) {
+    const numBins = FFT_FRAME / 2;
+    const melMin = hzToMel(MEL_F_MIN), melMax = hzToMel(MEL_F_MAX);
+    const centers = Array.from({length: NUM_MEL+2}, (_, i) =>
+      Math.floor(melToHz(melMin + i*(melMax-melMin)/(NUM_MEL+1)) * FFT_FRAME / sr));
+    return Array.from({length: NUM_MEL}, (_, m) => {
+      const f = new Float32Array(numBins);
+      for (let k = centers[m]; k < centers[m+1]; k++) f[k] = (k-centers[m]) / Math.max(1, centers[m+1]-centers[m]);
+      for (let k = centers[m+1]; k < centers[m+2]; k++) f[k] = (centers[m+2]-k) / Math.max(1, centers[m+2]-centers[m+1]);
+      return f;
+    });
+  }
+
+  function computeTemplate(float32, sampleRate) {
+    if (!float32 || float32.length < FFT_FRAME * 2) return null;
+    const filters = buildMelFilters(sampleRate);
+    const numBins = FFT_FRAME / 2, hop = FFT_FRAME >> 2;
+    const avg = new Float32Array(NUM_MEL);
+    let n = 0;
+    for (let start = 0; start + FFT_FRAME <= float32.length; start += hop) {
+      const re = float32.slice(start, start + FFT_FRAME);
+      for (let i = 0; i < FFT_FRAME; i++) re[i] *= 0.5 - 0.5*Math.cos(2*Math.PI*i/FFT_FRAME);
+      const im = new Float32Array(FFT_FRAME);
+      fftInPlace(re, im);
+      for (let m = 0; m < NUM_MEL; m++) {
+        let e = 0;
+        for (let k = 0; k < numBins; k++) e += filters[m][k] * Math.sqrt(re[k]*re[k] + im[k]*im[k]);
+        avg[m] += Math.log(e + 1e-8);
+      }
+      n++;
+    }
+    if (!n) return null;
+    for (let m = 0; m < NUM_MEL; m++) avg[m] /= n;
+    let norm = 0;
+    for (let m = 0; m < NUM_MEL; m++) norm += avg[m]*avg[m];
+    norm = Math.sqrt(norm) || 1;
+    for (let m = 0; m < NUM_MEL; m++) avg[m] /= norm;
+    return avg;
+  }
+
+  function templateToB64(t) {
+    const bytes = new Uint8Array(t.buffer);
+    let s = "";
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s);
+  }
+
+  /* ── UI ── */
   const nameInput   = document.getElementById("nameInput");
-  const btnEnroll   = document.getElementById("btnEnroll");
+  const btnRecord   = document.getElementById("btnRecord");
+  const timerEl     = document.getElementById("timer");
   const progressWrap  = document.getElementById("progressWrap");
   const progressBar   = document.getElementById("progressBar");
   const progressLabel = document.getElementById("progressLabel");
   const statusEl    = document.getElementById("status");
 
-  // Restore saved access key
-  const savedKey = localStorage.getItem("picovoice_access_key");
-  if (savedKey) accessKeyEl.value = savedKey;
-
   function setStatus(msg, cls = "") { statusEl.textContent = msg; statusEl.className = "status " + cls; }
   function setProgress(pct) {
-    progressWrap.style.display = "block";
-    progressLabel.style.display = "block";
+    progressWrap.style.display = "block"; progressLabel.style.display = "block";
     progressBar.style.width = pct + "%";
-    progressLabel.textContent = pct < 100
-      ? `${pct}% enrolled — keep speaking…`
-      : "100% — finishing up…";
+    progressLabel.textContent = pct < 100 ? `${pct}% — keep speaking…` : "Done!";
   }
 
   renderChips();
 
-  let enrolling = false;
-  let profiler = null;
-  let audioCtx = null;
-  let processor = null;
-  let micStream = null;
-  let pcmQueue = [];
-  let draining = false;
+  const RECORD_SEC = 25;
+  let recording = false, audioCtx = null, processor = null, stream = null;
+  let recordBuffer = [], seconds = 0, ticker = null, sampleRate = 44100;
 
-  btnEnroll.addEventListener("click", async () => {
-    if (enrolling) {
-      stopEnrollment("Enrolment cancelled.");
-      return;
-    }
+  btnRecord.addEventListener("click", async () => {
+    if (recording) { stopRecording(); return; }
 
     const name = nameInput.value.trim();
-    const accessKey = accessKeyEl.value.trim();
-    if (!name)       { setStatus("Please enter your name.", "err"); return; }
-    if (!accessKey)  { setStatus("Please enter your Picovoice AccessKey.", "err"); return; }
-    if (typeof EagleWeb === "undefined") {
-      setStatus("Eagle SDK not loaded. Reload the page.", "err");
-      return;
-    }
-
-    localStorage.setItem("picovoice_access_key", accessKey);
-
-    btnEnroll.textContent = "Stop";
-    btnEnroll.disabled = false;
-    enrolling = true;
-    pcmQueue = [];
-    draining = false;
-    setStatus("Loading Eagle model…");
+    if (!name) { setStatus("Please enter your name first.", "err"); return; }
 
     try {
-      profiler = await EagleWeb.EagleProfiler.create(accessKey, { publicPath: "/eagle/eagle_params.pv" });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
-      stopEnrollment("Eagle init failed: " + e.message, true);
-      return;
+      setStatus("Mic access denied. Allow mic and try again.", "err"); return;
     }
 
-    const RATE = 16000;
-    try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (e) {
-      stopEnrollment("Microphone access denied.", true);
-      return;
-    }
-
-    // Try to open context at 16kHz for direct feed (desktop browsers honour this)
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: RATE });
-    const source = audioCtx.createMediaStreamSource(micStream);
-    const frameLen = profiler.frameLength || 512;
-    processor = audioCtx.createScriptProcessor(frameLen, 1, 1);
-    let leftover = new Float32Array(0);
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    sampleRate = audioCtx.sampleRate;
+    const source = audioCtx.createMediaStreamSource(stream);
+    processor = audioCtx.createScriptProcessor(1024, 1, 1);
+    recordBuffer = [];
 
     processor.onaudioprocess = (e) => {
-      if (!enrolling) return;
-      const raw = e.inputBuffer.getChannelData(0);
-      const merged = new Float32Array(leftover.length + raw.length);
-      merged.set(leftover);
-      merged.set(raw, leftover.length);
-
-      let pos = 0;
-      while (pos + frameLen <= merged.length) {
-        const frame = merged.slice(pos, pos + frameLen);
-        pos += frameLen;
-        const pcm = new Int16Array(frameLen);
-        for (let i = 0; i < frameLen; i++) {
-          pcm[i] = Math.max(-32768, Math.min(32767, Math.round(frame[i] * 32768)));
-        }
-        pcmQueue.push(pcm);
-      }
-      leftover = merged.slice(pos);
-      if (!draining) drainQueue(name);
+      if (!recording) return;
+      recordBuffer.push(new Float32Array(e.inputBuffer.getChannelData(0)));
     };
-
     source.connect(processor);
     processor.connect(audioCtx.destination);
-    setStatus("Speak naturally for about 30 seconds…");
+
+    recording = true;
+    seconds = 0;
+    btnRecord.textContent = "Stop Early";
+    timerEl.style.display = "block";
+    timerEl.classList.add("pulse");
+    timerEl.textContent = "0s";
+    progressWrap.style.display = "block"; progressLabel.style.display = "block";
     setProgress(0);
+    setStatus("Speak naturally for 25 seconds…");
+
+    ticker = setInterval(() => {
+      seconds++;
+      timerEl.textContent = seconds + "s";
+      setProgress(Math.min(100, Math.round(seconds / RECORD_SEC * 100)));
+      if (seconds >= RECORD_SEC) stopRecording();
+    }, 1000);
   });
 
-  async function drainQueue(name) {
-    draining = true;
-    while (enrolling && pcmQueue.length > 0) {
-      const frame = pcmQueue.shift();
-      let pct;
-      try {
-        pct = await profiler.enroll(frame);
-      } catch (e) {
-        stopEnrollment("Enrolment error: " + e.message, true);
-        return;
-      }
-      const pctInt = Math.round(pct * 100);
-      setProgress(pctInt);
-      if (pct >= 1.0) {
-        await finishEnrollment(name);
-        return;
-      }
+  function stopRecording() {
+    if (!recording) return;
+    recording = false;
+    clearInterval(ticker);
+    timerEl.classList.remove("pulse");
+    try { processor.disconnect(); processor.onaudioprocess = null; } catch (_) {}
+    try { audioCtx.close(); } catch (_) {}
+    try { stream.getTracks().forEach(t => t.stop()); } catch (_) {}
+
+    const name = nameInput.value.trim();
+    if (seconds < 8) {
+      timerEl.style.display = "none";
+      setProgress(0); progressWrap.style.display = "none"; progressLabel.style.display = "none";
+      setStatus(`Only ${seconds}s — please record at least 10 seconds.`, "err");
+      btnRecord.textContent = "Start Recording";
+      return;
     }
-    draining = false;
-  }
 
-  async function finishEnrollment(name) {
-    enrolling = false;
-    stopAudioCapture();
-    setStatus("Saving voice profile…");
-    try {
-      await profiler.flush();
-      const profile = await profiler.export();
-      await profiler.release();
-      profiler = null;
+    setStatus("Computing voice fingerprint…");
+    btnRecord.disabled = true;
 
-      // Encode bytes as base64
-      let bin = "";
-      for (let i = 0; i < profile.bytes.length; i++) bin += String.fromCharCode(profile.bytes[i]);
-      const b64 = btoa(bin);
+    // Flatten buffer
+    const total = recordBuffer.reduce((s, c) => s + c.length, 0);
+    const flat = new Float32Array(total);
+    let off = 0;
+    for (const c of recordBuffer) { flat.set(c, off); off += c.length; }
 
-      const speakers = JSON.parse(localStorage.getItem("eagle_speakers") || "[]");
-      // Replace existing profile for same name
-      const idx = speakers.findIndex(s => s.name.toLowerCase() === name.toLowerCase());
-      if (idx >= 0) speakers[idx] = { name, profileBytes: b64 };
-      else speakers.push({ name, profileBytes: b64 });
-      localStorage.setItem("eagle_speakers", JSON.stringify(speakers));
+    setTimeout(() => {
+      const tmpl = computeTemplate(flat, sampleRate);
+      if (!tmpl) {
+        setStatus("Couldn't compute template. Try again with more speech.", "err");
+        btnRecord.textContent = "Start Recording"; btnRecord.disabled = false;
+        return;
+      }
 
-      progressWrap.style.display = "none";
-      progressLabel.style.display = "none";
+      const profiles = JSON.parse(localStorage.getItem("friday_voice_profiles") || "[]");
+      const idx = profiles.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+      const entry = { name, templateB64: templateToB64(tmpl), sampleRate };
+      if (idx >= 0) profiles[idx] = entry; else profiles.push(entry);
+      localStorage.setItem("friday_voice_profiles", JSON.stringify(profiles));
+
+      timerEl.style.display = "none";
       setProgress(100);
+      setTimeout(() => { progressWrap.style.display = "none"; progressLabel.style.display = "none"; }, 800);
       setStatus(`${name} enrolled! Friday will recognise your voice.`, "ok");
-      btnEnroll.textContent = "Start Enrolment";
+      btnRecord.textContent = "Start Recording"; btnRecord.disabled = false;
       nameInput.value = "";
       renderChips();
-    } catch (e) {
-      setStatus("Export failed: " + e.message, "err");
-      btnEnroll.textContent = "Start Enrolment";
-    }
-  }
-
-  function stopAudioCapture() {
-    try { if (processor) { processor.disconnect(); processor.onaudioprocess = null; } } catch (_) {}
-    try { if (audioCtx) audioCtx.close(); } catch (_) {}
-    try { if (micStream) micStream.getTracks().forEach(t => t.stop()); } catch (_) {}
-    processor = null; audioCtx = null; micStream = null;
-  }
-
-  function stopEnrollment(msg, isErr = false) {
-    enrolling = false;
-    draining = false;
-    pcmQueue = [];
-    stopAudioCapture();
-    if (profiler) { try { profiler.release(); } catch (_) {} profiler = null; }
-    progressWrap.style.display = "none";
-    progressLabel.style.display = "none";
-    btnEnroll.textContent = "Start Enrolment";
-    btnEnroll.disabled = false;
-    setStatus(msg, isErr ? "err" : "");
+    }, 50);
   }
 
   function renderChips() {
     const section = document.getElementById("enrolledSection");
     const chips   = document.getElementById("speakerChips");
-    let speakers = [];
-    try { speakers = JSON.parse(localStorage.getItem("eagle_speakers") || "[]"); } catch (_) {}
-    if (!speakers.length) { section.style.display = "none"; return; }
+    let profiles = [];
+    try { profiles = JSON.parse(localStorage.getItem("friday_voice_profiles") || "[]"); } catch (_) {}
+    if (!profiles.length) { section.style.display = "none"; return; }
     section.style.display = "block";
-    chips.innerHTML = speakers.map((s, i) =>
-      `<span class="speaker-chip">${s.name} <button onclick="removeSpeaker(${i})">remove</button></span>`
+    chips.innerHTML = profiles.map((p, i) =>
+      `<span class="speaker-chip">${p.name} <button onclick="removeSpeaker(${i})">remove</button></span>`
     ).join("");
   }
 
   function removeSpeaker(idx) {
-    let speakers = [];
-    try { speakers = JSON.parse(localStorage.getItem("eagle_speakers") || "[]"); } catch (_) {}
-    speakers.splice(idx, 1);
-    localStorage.setItem("eagle_speakers", JSON.stringify(speakers));
+    let profiles = [];
+    try { profiles = JSON.parse(localStorage.getItem("friday_voice_profiles") || "[]"); } catch (_) {}
+    profiles.splice(idx, 1);
+    localStorage.setItem("friday_voice_profiles", JSON.stringify(profiles));
     renderChips();
   }
 </script>

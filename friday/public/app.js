@@ -23,105 +23,160 @@ let recognizing = false;  // is the recognizer currently listening?
 let recognition = null;
 let preferredVoice = null;
 
-// ── Speaker identification (Picovoice Eagle — runs entirely in-browser) ────────
-// Profiles stored in localStorage as [{name, profileBytes: base64}]
+// ── Speaker identification — mel-filterbank fingerprint (no external SDK) ───────
+// Records mic audio, computes a 32-band log-mel spectrum per utterance, and
+// matches against enrolled templates via cosine similarity. Works entirely in the
+// browser; no signup or model file needed.
 
 let currentSpeaker = null;
-let eagleInstance = null;          // lazily created Eagle identifier
-let captureCtx = null;             // AudioContext for PCM capture
-let captureProcessor = null;       // ScriptProcessorNode
-let captureBuffer = [];            // accumulated Float32 samples this utterance
+let captureCtx = null;
+let captureProcessor = null;
+let captureBuffer = [];
+let captureSampleRate = 44100;
+
+const NUM_MEL = 32;
+const MEL_F_MIN = 80;
+const MEL_F_MAX = 3400;
+const FFT_FRAME = 1024;
+const ID_THRESHOLD = 0.90;
+
+function hzToMel(hz) { return 1127 * Math.log(1 + hz / 700); }
+function melToHz(mel) { return 700 * (Math.exp(mel / 1127) - 1); }
+
+// Iterative Cooley-Tukey FFT in-place on Float32Arrays.
+function fftInPlace(re, im) {
+  const n = re.length;
+  let j = 0;
+  for (let i = 1; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      let t = re[i]; re[i] = re[j]; re[j] = t;
+      t = im[i]; im[i] = im[j]; im[j] = t;
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len;
+    const wRe = Math.cos(ang), wIm = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cRe = 1, cIm = 0;
+      for (let k = 0; k < (len >> 1); k++) {
+        const uRe = re[i + k], uIm = im[i + k];
+        const vRe = re[i + k + (len >> 1)] * cRe - im[i + k + (len >> 1)] * cIm;
+        const vIm = re[i + k + (len >> 1)] * cIm + im[i + k + (len >> 1)] * cRe;
+        re[i + k] = uRe + vRe; im[i + k] = uIm + vIm;
+        re[i + k + (len >> 1)] = uRe - vRe; im[i + k + (len >> 1)] = uIm - vIm;
+        const nr = cRe * wRe - cIm * wIm; cIm = cRe * wIm + cIm * wRe; cRe = nr;
+      }
+    }
+  }
+}
+
+function buildMelFilters(sampleRate) {
+  const numBins = FFT_FRAME / 2;
+  const melMin = hzToMel(MEL_F_MIN), melMax = hzToMel(MEL_F_MAX);
+  const centers = Array.from({ length: NUM_MEL + 2 }, (_, i) =>
+    Math.floor(melToHz(melMin + i * (melMax - melMin) / (NUM_MEL + 1)) * FFT_FRAME / sampleRate)
+  );
+  return Array.from({ length: NUM_MEL }, (_, m) => {
+    const f = new Float32Array(numBins);
+    for (let k = centers[m]; k < centers[m + 1]; k++) f[k] = (k - centers[m]) / Math.max(1, centers[m + 1] - centers[m]);
+    for (let k = centers[m + 1]; k < centers[m + 2]; k++) f[k] = (centers[m + 2] - k) / Math.max(1, centers[m + 2] - centers[m + 1]);
+    return f;
+  });
+}
+
+function computeTemplate(float32, sampleRate) {
+  if (!float32 || float32.length < FFT_FRAME * 2) return null;
+  const filters = buildMelFilters(sampleRate);
+  const numBins = FFT_FRAME / 2;
+  const hop = FFT_FRAME >> 2;
+  const avg = new Float32Array(NUM_MEL);
+  let n = 0;
+  for (let start = 0; start + FFT_FRAME <= float32.length; start += hop) {
+    const re = float32.slice(start, start + FFT_FRAME);
+    for (let i = 0; i < FFT_FRAME; i++) re[i] *= 0.5 - 0.5 * Math.cos(2 * Math.PI * i / FFT_FRAME);
+    const im = new Float32Array(FFT_FRAME);
+    fftInPlace(re, im);
+    for (let m = 0; m < NUM_MEL; m++) {
+      let e = 0;
+      for (let k = 0; k < numBins; k++) e += filters[m][k] * Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+      avg[m] += Math.log(e + 1e-8);
+    }
+    n++;
+  }
+  if (!n) return null;
+  for (let m = 0; m < NUM_MEL; m++) avg[m] /= n;
+  let norm = 0;
+  for (let m = 0; m < NUM_MEL; m++) norm += avg[m] * avg[m];
+  norm = Math.sqrt(norm) || 1;
+  for (let m = 0; m < NUM_MEL; m++) avg[m] /= norm;
+  return avg;
+}
+
+function cosineSim(a, b) {
+  let dot = 0;
+  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+  return dot;
+}
+
+function templateToB64(t) {
+  const bytes = new Uint8Array(t.buffer);
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+
+function b64ToTemplate(b64) {
+  const s = atob(b64);
+  const bytes = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+  return new Float32Array(bytes.buffer);
+}
 
 function loadSpeakerProfiles() {
-  try { return JSON.parse(localStorage.getItem("eagle_speakers") || "[]"); } catch (_) { return []; }
-}
-
-function b64ToUint8(b64) {
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr;
-}
-
-function resampleTo16k(float32, fromRate) {
-  if (fromRate === 16000) return float32;
-  const ratio = fromRate / 16000;
-  const outLen = Math.floor(float32.length / ratio);
-  const out = new Float32Array(outLen);
-  for (let i = 0; i < outLen; i++) {
-    const srcIdx = i * ratio;
-    const lo = Math.floor(srcIdx);
-    const hi = Math.min(lo + 1, float32.length - 1);
-    const frac = srcIdx - lo;
-    out[i] = float32[lo] * (1 - frac) + float32[hi] * frac;
-  }
-  return out;
-}
-
-async function getEagle() {
-  if (eagleInstance) return eagleInstance;
-  const accessKey = localStorage.getItem("picovoice_access_key");
-  if (!accessKey || typeof EagleWeb === "undefined") return null;
-  try {
-    eagleInstance = await EagleWeb.Eagle.create(accessKey, { publicPath: "/eagle/eagle_params.pv" });
-  } catch (e) {
-    console.warn("Eagle init failed:", e.message);
-  }
-  return eagleInstance;
+  try { return JSON.parse(localStorage.getItem("friday_voice_profiles") || "[]"); } catch (_) { return []; }
 }
 
 function startCapture() {
   captureBuffer = [];
   if (!captureCtx || !captureProcessor) return;
   captureProcessor.onaudioprocess = (e) => {
-    const chunk = e.inputBuffer.getChannelData(0);
-    captureBuffer.push(new Float32Array(chunk));
+    captureBuffer.push(new Float32Array(e.inputBuffer.getChannelData(0)));
   };
 }
 
 function stopCapture() {
   if (captureProcessor) captureProcessor.onaudioprocess = null;
   if (!captureBuffer.length) return null;
-  const total = captureBuffer.reduce((n, c) => n + c.length, 0);
-  const merged = new Float32Array(total);
+  const total = captureBuffer.reduce((s, c) => s + c.length, 0);
+  const out = new Float32Array(total);
   let offset = 0;
-  for (const chunk of captureBuffer) { merged.set(chunk, offset); offset += chunk.length; }
+  for (const c of captureBuffer) { out.set(c, offset); offset += c.length; }
   captureBuffer = [];
-  return merged;
+  return out;
 }
 
 async function identifySpeaker() {
   const profiles = loadSpeakerProfiles();
   if (!profiles.length) return null;
-  const eagle = await getEagle();
-  if (!eagle) return null;
-
-  const float32 = stopCapture();
-  if (!float32 || float32.length < 1000) return null;
-
-  const rate = captureCtx ? captureCtx.sampleRate : 44100;
-  const resampled = resampleTo16k(float32, rate);
-  if (resampled.length < eagle.minProcessSamples) return null;
-
-  const pcm = new Int16Array(resampled.length);
-  for (let i = 0; i < resampled.length; i++) {
-    pcm[i] = Math.max(-32768, Math.min(32767, Math.round(resampled[i] * 32768)));
+  const audio = stopCapture();
+  if (!audio) return null;
+  const tmpl = computeTemplate(audio, captureSampleRate);
+  if (!tmpl) return null;
+  let best = null, bestScore = -Infinity;
+  for (const p of profiles) {
+    const score = cosineSim(tmpl, b64ToTemplate(p.templateB64));
+    if (score > bestScore) { bestScore = score; best = p.name; }
   }
-
-  const eagleProfiles = profiles.map(p => ({ bytes: b64ToUint8(p.profileBytes) }));
-  try {
-    const scores = await eagle.process(pcm, eagleProfiles);
-    const best = scores.indexOf(Math.max(...scores));
-    if (scores[best] > 0.5) return profiles[best].name;
-  } catch (e) {
-    console.warn("Eagle identify error:", e.message);
-  }
-  return null;
+  return bestScore >= ID_THRESHOLD ? best : null;
 }
 
 async function initCaptureNode(stream) {
   try {
     captureCtx = new (window.AudioContext || window.webkitAudioContext)();
+    captureSampleRate = captureCtx.sampleRate;
     if (captureCtx.state === "suspended") await captureCtx.resume().catch(() => {});
     const source = captureCtx.createMediaStreamSource(stream);
     captureProcessor = captureCtx.createScriptProcessor(1024, 1, 1);
@@ -427,7 +482,7 @@ function startSession() {
   // Unlock audio within the tap gesture (iOS requires this).
   unlockAudio();
 
-  // Init mic stream for Eagle PCM capture (Eagle speakers in localStorage → attempt ID).
+  // Init mic stream for voice fingerprint capture.
   const hasSpeakers = loadSpeakerProfiles().length > 0;
   if (hasSpeakers && !captureCtx) {
     navigator.mediaDevices.getUserMedia({ audio: true })
