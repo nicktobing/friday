@@ -160,7 +160,8 @@ function stopCapture() {
 
 async function identifySpeaker() {
   const profiles = loadSpeakerProfiles();
-  if (!profiles.length) return null;
+  console.log(`[SpeakerID] called — profiles=${profiles.length} captureCtx=${!!captureCtx}`);
+  if (!profiles.length) { console.log("[SpeakerID] no profiles enrolled"); return null; }
   const audio = stopCapture();
   if (!audio) { console.log("[SpeakerID] no audio captured"); return null; }
   console.log(`[SpeakerID] audio=${audio.length} samples @ ${captureSampleRate}Hz`);
@@ -486,6 +487,7 @@ function startSession() {
 
   // Init mic stream for voice fingerprint capture.
   const hasSpeakers = loadSpeakerProfiles().length > 0;
+  console.log(`[SpeakerID] session start — hasSpeakers=${hasSpeakers}`, loadSpeakerProfiles().map(p => p.name));
   if (hasSpeakers && !captureCtx) {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(stream => initCaptureNode(stream))
