@@ -93,7 +93,7 @@ function speakBrowser(text) {
   return new Promise(resolve => {
     const u = new SpeechSynthesisUtterance(text);
     if (preferredVoice) u.voice = preferredVoice;
-    u.rate = 1.25;
+    u.rate = 1.0;
     u.pitch = 1.0;
     u.onend = resolve;
     u.onerror = resolve;
