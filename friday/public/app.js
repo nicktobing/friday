@@ -112,7 +112,7 @@ async function speakEleven(text) {
   return new Promise(resolve => {
     const audio = new Audio(url);
     currentAudio = audio;
-    audio.playbackRate = 1.12; // a touch snappier
+    audio.playbackRate = 1.0;
     const done = () => { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; resolve(); };
     audio.onended = done;
     audio.onerror = done;
