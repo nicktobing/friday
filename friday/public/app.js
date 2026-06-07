@@ -23,6 +23,77 @@ let recognizing = false;  // is the recognizer currently listening?
 let recognition = null;
 let preferredVoice = null;
 
+// ── Speaker identification ────────────────────────────────────────────────────
+// Profiles stored in localStorage: { profileId: "Nick", ... }
+let speakersMap = {};
+try { speakersMap = JSON.parse(localStorage.getItem("friday_speakers") || "{}"); } catch (_) {}
+
+let currentSpeaker = null;   // name of identified speaker this session
+let audioStream = null;      // shared getUserMedia stream
+let mediaRecorder = null;
+let audioChunks = [];
+
+function saveSpeakers() {
+  localStorage.setItem("friday_speakers", JSON.stringify(speakersMap));
+}
+
+async function initAudioStream() {
+  if (audioStream) return;
+  try {
+    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    console.warn("MediaRecorder unavailable:", e.message);
+  }
+}
+
+function startRecording() {
+  if (!audioStream || !window.MediaRecorder) return;
+  audioChunks = [];
+  try {
+    mediaRecorder = new MediaRecorder(audioStream);
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.start();
+  } catch (e) {
+    console.warn("MediaRecorder start failed:", e.message);
+  }
+}
+
+function stopRecording() {
+  return new Promise((resolve) => {
+    if (!mediaRecorder || mediaRecorder.state === "inactive") { resolve(null); return; }
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+      resolve(blob);
+    };
+    mediaRecorder.stop();
+  });
+}
+
+async function identifySpeaker(audioBlob) {
+  const profileIds = Object.keys(speakersMap);
+  if (!profileIds.length || !audioBlob || audioBlob.size < 1000) return null;
+  try {
+    const res = await fetch(`/identify?profiles=${profileIds.join(",")}`, {
+      method: "POST",
+      headers: { "Content-Type": audioBlob.type || "audio/webm" },
+      body: audioBlob,
+    });
+    const { profileId, score } = await res.json();
+    if (profileId && score > 0.5) return speakersMap[profileId] || null;
+  } catch (e) {
+    console.warn("Speaker ID failed:", e.message);
+  }
+  return null;
+}
+
+// Show who's speaking in the status bar (briefly).
+function showSpeaker(name) {
+  if (!name) return;
+  const prev = statusEl.textContent;
+  statusEl.textContent = `${name} — Listening…`;
+  setTimeout(() => { if (statusEl.textContent === `${name} — Listening…`) statusEl.textContent = "Listening…"; }, 2000);
+}
+
 // ---------- UI helpers ----------
 function setState(state, message) {
   document.body.className = state; // "", "listening", "thinking", "speaking"
@@ -156,7 +227,7 @@ function unlockAudio() {
 }
 
 // ---------- Talking to the brain ----------
-async function askFriday(userText) {
+async function askFriday(userText, speakerName = null) {
   history.push({ role: "user", content: userText });
   setState("thinking", "Friday is thinking…");
 
@@ -181,7 +252,7 @@ async function askFriday(userText) {
     const res = await fetch("/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: history }),
+      body: JSON.stringify({ messages: history, speakerName }),
     });
 
     const readerStream = res.body.getReader();
@@ -241,8 +312,8 @@ function waitForSpeechEnd() {
 // ---------- Voice input (free, on-device STT) ----------
 function startListening() {
   if (!active || recognizing) return;
-  // Rebuild each turn — iOS Safari stops accepting .start() on a reused object
   recognition = buildRecognition();
+  startRecording(); // capture audio for speaker identification
   try {
     recognition.start();
   } catch (_) { /* already starting */ }
@@ -267,8 +338,15 @@ function buildRecognition() {
     if (interim) setState("listening", interim);
     if (finalText.trim()) {
       recognition.stop();
-      addBubble("user", finalText.trim());
-      askFriday(finalText.trim());
+      const text = finalText.trim();
+      addBubble("user", text);
+      // Identify speaker and chat in parallel — identification is fast (~500ms)
+      // and Claude response is slow (~2-5s), so they effectively run concurrently.
+      stopRecording().then(async (audioBlob) => {
+        const name = await identifySpeaker(audioBlob);
+        if (name) { currentSpeaker = name; showSpeaker(name); }
+        askFriday(text, currentSpeaker);
+      });
     }
   };
 
@@ -298,11 +376,13 @@ function startSession() {
     return;
   }
   active = true;
+  currentSpeaker = null;
   history.length = 0;
   transcriptEl.innerHTML = "";
 
-  // Unlock audio playback on iOS within the tap gesture (both voice modes).
+  // Unlock audio and init mic stream within the tap gesture (iOS requires this).
   unlockAudio();
+  initAudioStream();
 
   startListening();
 }

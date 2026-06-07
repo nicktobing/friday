@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Friday — Voice Enrolment</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0a0a0f;
+      color: #e8e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #13131a;
+      border: 1px solid #2a2a3a;
+      border-radius: 20px;
+      padding: 40px;
+      max-width: 420px;
+      width: 100%;
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 8px; }
+    p.sub { color: #888; font-size: 0.9rem; margin-bottom: 32px; line-height: 1.5; }
+    label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 6px; }
+    input[type="text"] {
+      width: 100%;
+      background: #1e1e2e;
+      border: 1px solid #3a3a4a;
+      border-radius: 10px;
+      color: #e8e8f0;
+      font-size: 1rem;
+      padding: 12px 16px;
+      margin-bottom: 24px;
+      outline: none;
+    }
+    input[type="text"]:focus { border-color: #6060ff; }
+    button {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      border: none;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button:disabled { opacity: 0.4; cursor: default; }
+    #btnRecord { background: #4040cc; color: #fff; margin-bottom: 12px; }
+    #btnSubmit { background: #22aa66; color: #fff; display: none; }
+    .status {
+      margin-top: 20px;
+      font-size: 0.9rem;
+      color: #aaa;
+      text-align: center;
+      min-height: 24px;
+    }
+    .status.ok { color: #44cc88; }
+    .status.err { color: #ff6666; }
+    .timer {
+      font-size: 2rem;
+      font-weight: 700;
+      text-align: center;
+      margin: 16px 0;
+      color: #6060ff;
+      display: none;
+    }
+    .pulse { animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .enrolled-list { margin-top: 28px; border-top: 1px solid #2a2a3a; padding-top: 20px; }
+    .enrolled-list h3 { font-size: 0.85rem; color: #666; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .speaker-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #1e1e2e;
+      border: 1px solid #3a3a4a;
+      border-radius: 20px;
+      padding: 6px 14px;
+      margin: 4px;
+      font-size: 0.85rem;
+    }
+    .speaker-chip button {
+      background: none;
+      border: none;
+      color: #ff6666;
+      cursor: pointer;
+      font-size: 0.75rem;
+      padding: 0;
+      width: auto;
+      font-weight: 400;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Voice Enrolment</h1>
+  <p class="sub">Friday learns who you are from your voice. Speak naturally for 20 seconds — tell her about yourself, what you do, anything.</p>
+
+  <label for="nameInput">Your name</label>
+  <input type="text" id="nameInput" placeholder="e.g. Nick" autocomplete="off" />
+
+  <button id="btnRecord">Start Recording</button>
+  <button id="btnSubmit">Submit to Friday</button>
+
+  <div class="timer" id="timer">0s</div>
+  <div class="status" id="status">Enter your name and press Start Recording.</div>
+
+  <div class="enrolled-list" id="enrolledSection" style="display:none">
+    <h3>Enrolled speakers</h3>
+    <div id="speakerChips"></div>
+  </div>
+</div>
+
+<script>
+  const nameInput = document.getElementById("nameInput");
+  const btnRecord = document.getElementById("btnRecord");
+  const btnSubmit = document.getElementById("btnSubmit");
+  const timerEl = document.getElementById("timer");
+  const statusEl = document.getElementById("status");
+
+  let speakersMap = {};
+  try { speakersMap = JSON.parse(localStorage.getItem("friday_speakers") || "{}"); } catch (_) {}
+
+  function saveSpeakers() { localStorage.setItem("friday_speakers", JSON.stringify(speakersMap)); }
+  function setStatus(msg, cls = "") { statusEl.textContent = msg; statusEl.className = "status " + cls; }
+
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let audioBlob = null;
+  let recordingTimer = null;
+  let seconds = 0;
+
+  renderChips();
+
+  btnRecord.addEventListener("click", async () => {
+    const name = nameInput.value.trim();
+    if (!name) { setStatus("Please enter your name first."); return; }
+
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      // Stop early
+      mediaRecorder.stop();
+      return;
+    }
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      setStatus("Microphone access denied. Please allow mic access.", "err");
+      return;
+    }
+
+    audioChunks = [];
+    audioBlob = null;
+    btnSubmit.style.display = "none";
+    timerEl.style.display = "block";
+    timerEl.classList.add("pulse");
+    seconds = 0;
+    timerEl.textContent = "0s";
+
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      clearInterval(recordingTimer);
+      timerEl.classList.remove("pulse");
+      stream.getTracks().forEach((t) => t.stop());
+      audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+      btnRecord.textContent = "Re-record";
+      btnRecord.disabled = false;
+      if (seconds < 10) {
+        setStatus(`Only ${seconds}s recorded — please record at least 20 seconds.`, "err");
+      } else {
+        setStatus(`${seconds}s recorded. Press Submit to enrol.`);
+        btnSubmit.style.display = "block";
+      }
+    };
+
+    mediaRecorder.start();
+    btnRecord.textContent = "Stop Recording";
+
+    recordingTimer = setInterval(() => {
+      seconds++;
+      timerEl.textContent = seconds + "s";
+      if (seconds >= 30) { mediaRecorder.stop(); } // auto-stop at 30s
+    }, 1000);
+
+    setStatus("Speak naturally for at least 20 seconds…");
+  });
+
+  btnSubmit.addEventListener("click", async () => {
+    const name = nameInput.value.trim();
+    if (!name || !audioBlob) return;
+
+    btnSubmit.disabled = true;
+    setStatus("Creating voice profile…");
+
+    try {
+      // 1. Create profile
+      const createRes = await fetch("/enroll/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const { profileId, error: createErr } = await createRes.json();
+      if (createErr) throw new Error(createErr);
+
+      setStatus("Uploading voice sample to Azure…");
+
+      // 2. Enroll audio
+      const enrollRes = await fetch(`/enroll/audio/${profileId}`, {
+        method: "POST",
+        headers: { "Content-Type": audioBlob.type || "audio/webm" },
+        body: audioBlob,
+      });
+      const enrollData = await enrollRes.json();
+
+      const status = enrollData.enrollmentStatus || enrollData.status || "";
+      const remaining = enrollData.remainingEnrollmentsSpeechLength;
+
+      if (status === "Enrolled" || status === "succeeded") {
+        speakersMap[profileId] = name;
+        saveSpeakers();
+        setStatus(`${name} enrolled! Friday will now recognise your voice.`, "ok");
+        btnSubmit.style.display = "none";
+        nameInput.value = "";
+        timerEl.style.display = "none";
+        renderChips();
+      } else if (remaining > 0) {
+        setStatus(`Need ${Math.ceil(remaining)}s more speech. Re-record and try again.`, "err");
+        btnSubmit.disabled = false;
+      } else {
+        speakersMap[profileId] = name;
+        saveSpeakers();
+        setStatus(`${name} enrolled (status: ${status || "processing"}).`, "ok");
+        renderChips();
+      }
+    } catch (err) {
+      setStatus("Error: " + err.message, "err");
+      btnSubmit.disabled = false;
+    }
+  });
+
+  function renderChips() {
+    const section = document.getElementById("enrolledSection");
+    const chips = document.getElementById("speakerChips");
+    const entries = Object.entries(speakersMap);
+    if (!entries.length) { section.style.display = "none"; return; }
+    section.style.display = "block";
+    chips.innerHTML = entries.map(([id, name]) =>
+      `<span class="speaker-chip">${name} <button onclick="removeSpeaker('${id}')">remove</button></span>`
+    ).join("");
+  }
+
+  function removeSpeaker(profileId) {
+    delete speakersMap[profileId];
+    saveSpeakers();
+    renderChips();
+  }
+</script>
+</body>
+</html>

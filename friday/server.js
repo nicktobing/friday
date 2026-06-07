@@ -56,13 +56,13 @@ const MEM0_API_KEY = process.env.MEM0_API_KEY;
 const MEM0_USER_ID = process.env.MEM0_USER_ID || "friday-user";
 const MEM0_BASE = "https://api.mem0.ai/v1";
 
-async function searchMemories(query) {
+async function searchMemories(query, userId = MEM0_USER_ID) {
   if (!MEM0_API_KEY) return "";
   try {
     const res = await fetch(`${MEM0_BASE}/memories/search/`, {
       method: "POST",
       headers: { Authorization: `Token ${MEM0_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ query, user_id: MEM0_USER_ID, limit: 10 }),
+      body: JSON.stringify({ query, user_id: userId, limit: 10 }),
     });
     const data = await res.json();
     const items = Array.isArray(data) ? data : data.results || [];
@@ -75,13 +75,13 @@ async function searchMemories(query) {
   }
 }
 
-async function addMemory(messages) {
+async function addMemory(messages, userId = MEM0_USER_ID) {
   if (!MEM0_API_KEY) return;
   try {
     await fetch(`${MEM0_BASE}/memories/`, {
       method: "POST",
       headers: { Authorization: `Token ${MEM0_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, user_id: MEM0_USER_ID }),
+      body: JSON.stringify({ messages, user_id: userId }),
     });
   } catch (err) {
     console.error("Mem0 add error:", err?.message);
@@ -92,6 +92,82 @@ if (MEM0_API_KEY) {
   console.log("  Memory: Mem0 connected");
 } else {
   console.log("  Memory: not configured (add MEM0_API_KEY to .env)");
+}
+
+// ─── Azure Speaker Recognition ───────────────────────────────────────────────
+
+const AZURE_SPEAKER_KEY = process.env.AZURE_SPEAKER_KEY;
+const AZURE_SPEAKER_REGION = process.env.AZURE_SPEAKER_REGION || "eastus";
+const AZURE_BASE = `https://${AZURE_SPEAKER_REGION}.api.cognitive.microsoft.com/speaker`;
+
+if (AZURE_SPEAKER_KEY) {
+  console.log("  Speaker ID: Azure connected");
+} else {
+  console.log("  Speaker ID: not configured (add AZURE_SPEAKER_KEY to .env)");
+}
+
+async function azurePoll(operationUrl) {
+  for (let i = 0; i < 12; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    const r = await fetch(operationUrl, {
+      headers: { "Ocp-Apim-Subscription-Key": AZURE_SPEAKER_KEY },
+    });
+    const d = await r.json();
+    if (d.status === "succeeded") return d;
+    if (d.status === "failed") throw new Error("Azure operation failed");
+  }
+  throw new Error("Azure identification timed out");
+}
+
+async function azureCreateProfile() {
+  const res = await fetch(
+    `${AZURE_BASE}/identification/v2.0/text-independent/profiles`,
+    {
+      method: "POST",
+      headers: {
+        "Ocp-Apim-Subscription-Key": AZURE_SPEAKER_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ locale: "en-us" }),
+    }
+  );
+  return res.json();
+}
+
+async function azureEnroll(profileId, audioBuffer, contentType) {
+  const res = await fetch(
+    `${AZURE_BASE}/identification/v2.0/text-independent/profiles/${profileId}/enrollments`,
+    {
+      method: "POST",
+      headers: {
+        "Ocp-Apim-Subscription-Key": AZURE_SPEAKER_KEY,
+        "Content-Type": contentType || "audio/wav",
+      },
+      body: audioBuffer,
+    }
+  );
+  if (res.status === 202) {
+    const opUrl = res.headers.get("Operation-Location");
+    if (opUrl) return azurePoll(opUrl);
+  }
+  return res.json();
+}
+
+async function azureIdentify(audioBuffer, profileIds, contentType) {
+  const url = `${AZURE_BASE}/identification/v2.0/text-independent/profiles:identifySingleSpeaker?profileIds=${profileIds.join(",")}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Ocp-Apim-Subscription-Key": AZURE_SPEAKER_KEY,
+      "Content-Type": contentType || "audio/wav",
+    },
+    body: audioBuffer,
+  });
+  if (res.status === 202) {
+    const opUrl = res.headers.get("Operation-Location");
+    if (opUrl) return azurePoll(opUrl);
+  }
+  return res.json();
 }
 
 // ─── Google Calendar ──────────────────────────────────────────────────────────
@@ -309,6 +385,62 @@ app.post("/tts", async (req, res) => {
   }
 });
 
+// ─── Speaker enrollment & identification ──────────────────────────────────────
+
+// POST /enroll/create  { name: "Nick" }  → { profileId, name }
+app.post("/enroll/create", async (req, res) => {
+  if (!AZURE_SPEAKER_KEY) return res.status(503).json({ error: "Azure Speaker not configured" });
+  const name = (req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ error: "name required" });
+  try {
+    const profile = await azureCreateProfile();
+    res.json({ profileId: profile.profileId, name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /enroll/audio/:profileId  (body = raw audio)  → enrollment status
+app.post(
+  "/enroll/audio/:profileId",
+  express.raw({ type: "*/*", limit: "20mb" }),
+  async (req, res) => {
+    if (!AZURE_SPEAKER_KEY) return res.status(503).json({ error: "Azure Speaker not configured" });
+    try {
+      const result = await azureEnroll(
+        req.params.profileId,
+        req.body,
+        req.headers["content-type"]
+      );
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// POST /identify?profiles=id1,id2,...  (body = raw audio)  → { profileId, score }
+app.post(
+  "/identify",
+  express.raw({ type: "*/*", limit: "5mb" }),
+  async (req, res) => {
+    if (!AZURE_SPEAKER_KEY) return res.json({ profileId: null, score: 0 });
+    const profileIds = (req.query.profiles || "").split(",").filter(Boolean);
+    if (!profileIds.length) return res.json({ profileId: null, score: 0 });
+    try {
+      const result = await azureIdentify(req.body, profileIds, req.headers["content-type"]);
+      const identified = result.identifiedProfile || result;
+      res.json({
+        profileId: identified.profileId || null,
+        score: identified.score || 0,
+      });
+    } catch (err) {
+      console.error("Identify error:", err.message);
+      res.json({ profileId: null, score: 0 });
+    }
+  }
+);
+
 // ─── Chat endpoint ────────────────────────────────────────────────────────────
 
 // POST /chat  { messages: [{role, content}, ...] }  → SSE stream of {text} chunks
@@ -335,10 +467,18 @@ app.post("/chat", async (req, res) => {
       ...(googleCalendar ? CALENDAR_TOOLS : []),
     ];
 
-    // Fetch relevant memories and inject into system prompt
+    // Per-speaker Mem0 user ID so each family member has separate memories
+    const speakerName = req.body.speakerName || null;
+    const memUserId = speakerName
+      ? `friday-${speakerName.toLowerCase().replace(/\s+/g, "-")}`
+      : MEM0_USER_ID;
+
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")?.content || "";
-    const memoryContext = await searchMemories(lastUserMsg);
-    const systemWithMemory = SYSTEM_PROMPT + memoryContext;
+    const memoryContext = await searchMemories(lastUserMsg, memUserId);
+    const speakerContext = speakerName
+      ? `\n\n## Current speaker: ${speakerName}\nYou are speaking with ${speakerName}. Address them by name naturally.`
+      : "";
+    const systemWithMemory = SYSTEM_PROMPT + speakerContext + memoryContext;
 
     let currentMessages = [...messages];
     let iterations = 0;
@@ -365,10 +505,10 @@ app.post("/chat", async (req, res) => {
         res.write("data: [DONE]\n\n");
         // Save this turn to memory in the background
         if (finalText) {
-          addMemory([
-            { role: "user", content: lastUserMsg },
-            { role: "assistant", content: finalText },
-          ]).catch(() => {});
+          addMemory(
+            [{ role: "user", content: lastUserMsg }, { role: "assistant", content: finalText }],
+            memUserId
+          ).catch(() => {});
         }
         return;
       }
