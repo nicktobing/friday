@@ -229,6 +229,8 @@ function waitForSpeechEnd() {
 // ---------- Voice input (free, on-device STT) ----------
 function startListening() {
   if (!active || recognizing) return;
+  // Rebuild each turn — iOS Safari stops accepting .start() on a reused object
+  recognition = buildRecognition();
   try {
     recognition.start();
   } catch (_) { /* already starting */ }
