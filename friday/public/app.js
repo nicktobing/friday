@@ -45,8 +45,10 @@ function addBubble(role, text) {
 let ttsMode = "browser";
 let speakQueue = [];
 let speaking = false;
-let currentAudio = null;
-let audioEl = null; // persistent element unlocked on first tap — iOS blocks play() after async gaps
+// AudioContext approach for ElevenLabs: coexists with SpeechRecognition on iOS
+// whereas <audio> elements fight the mic for the audio session.
+let audioCtx = null;
+let currentSource = null;
 
 async function loadConfig() {
   try {
@@ -109,16 +111,17 @@ async function speakEleven(text) {
     body: JSON.stringify({ text }),
   });
   if (!res.ok) throw new Error("tts " + res.status);
-  const url = URL.createObjectURL(await res.blob());
+  const arrayBuffer = await res.arrayBuffer();
+  if (audioCtx.state === "suspended") await audioCtx.resume();
+  const decoded = await audioCtx.decodeAudioData(arrayBuffer);
   return new Promise(resolve => {
-    const audio = audioEl || new Audio();
-    currentAudio = audio;
-    audio.playbackRate = 1.0;
-    const done = () => { URL.revokeObjectURL(url); if (currentAudio === audio) currentAudio = null; resolve(); };
-    audio.onended = done;
-    audio.onerror = done;
-    audio.src = url;
-    audio.play().catch(done);
+    if (currentSource) { try { currentSource.stop(); } catch (_) {} currentSource = null; }
+    const source = audioCtx.createBufferSource();
+    source.buffer = decoded;
+    source.connect(audioCtx.destination);
+    source.onended = () => { currentSource = null; resolve(); };
+    source.start();
+    currentSource = source;
   });
 }
 
@@ -127,23 +130,29 @@ function stopSpeaking() {
   speakQueue = [];
   speaking = false;
   speechSynthesis.cancel();
-  if (currentAudio) { try { currentAudio.pause(); } catch (_) {} currentAudio = null; }
+  if (currentSource) { try { currentSource.stop(); } catch (_) {} currentSource = null; }
 }
 
 function isSpeaking() {
-  return speaking || speakQueue.length > 0 || speechSynthesis.speaking ||
-    (currentAudio && !currentAudio.paused);
+  return speaking || speakQueue.length > 0 || speechSynthesis.speaking || currentSource !== null;
 }
 
-// Unlock audio playback inside the user's tap (required by iOS for both modes).
+// Unlock audio inside the user's tap gesture (required by iOS).
 function unlockAudio() {
   try { speechSynthesis.speak(new SpeechSynthesisUtterance(" ")); } catch (_) {}
-  if (!audioEl) {
-    audioEl = new Audio(
-      "data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQxAADB8AhSmxhIIEVCSiJrDCQBTcu3UrAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-    );
-    audioEl.play().catch(() => {});
+  // Create and unlock an AudioContext for ElevenLabs playback.
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  // Play a silent buffer so iOS marks this context as user-activated.
+  try {
+    const buf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(audioCtx.destination);
+    src.start();
+  } catch (_) {}
 }
 
 // ---------- Talking to the brain ----------
