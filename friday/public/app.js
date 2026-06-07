@@ -140,15 +140,10 @@ function loadSpeakerProfiles() {
 }
 
 function startCapture() {
-  captureBuffer = [];
-  if (!captureCtx || !captureProcessor) return;
-  captureProcessor.onaudioprocess = (e) => {
-    captureBuffer.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-  };
+  captureBuffer = []; // reset buffer; onaudioprocess stays assigned permanently
 }
 
 function stopCapture() {
-  if (captureProcessor) captureProcessor.onaudioprocess = null;
   if (!captureBuffer.length) return null;
   const total = captureBuffer.reduce((s, c) => s + c.length, 0);
   const out = new Float32Array(total);
@@ -183,8 +178,13 @@ async function initCaptureNode(stream) {
     if (captureCtx.state === "suspended") await captureCtx.resume().catch(() => {});
     const source = captureCtx.createMediaStreamSource(stream);
     captureProcessor = captureCtx.createScriptProcessor(1024, 1, 1);
+    // Assign permanently — startCapture() just resets the buffer, not this handler
+    captureProcessor.onaudioprocess = (e) => {
+      captureBuffer.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    };
     source.connect(captureProcessor);
     captureProcessor.connect(captureCtx.destination);
+    console.log(`[SpeakerID] capture node ready @ ${captureSampleRate}Hz`);
   } catch (e) {
     console.warn("Capture node init failed:", e.message);
   }
