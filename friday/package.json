@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
+    "@picovoice/eagle-web": "^3.0.1",
     "express": "^4.21.2",
-    "googleapis": "^173.0.0"
+    "googleapis": "^173.0.0",
+    "mem0ai": "^3.0.6"
   }
 }

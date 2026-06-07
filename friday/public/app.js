@@ -23,73 +23,118 @@ let recognizing = false;  // is the recognizer currently listening?
 let recognition = null;
 let preferredVoice = null;
 
-// ── Speaker identification ────────────────────────────────────────────────────
-// Profiles stored in localStorage: { profileId: "Nick", ... }
-let speakersMap = {};
-try { speakersMap = JSON.parse(localStorage.getItem("friday_speakers") || "{}"); } catch (_) {}
+// ── Speaker identification (Picovoice Eagle — runs entirely in-browser) ────────
+// Profiles stored in localStorage as [{name, profileBytes: base64}]
 
-let currentSpeaker = null;   // name of identified speaker this session
-let audioStream = null;      // shared getUserMedia stream
-let mediaRecorder = null;
-let audioChunks = [];
+let currentSpeaker = null;
+let eagleInstance = null;          // lazily created Eagle identifier
+let captureCtx = null;             // AudioContext for PCM capture
+let captureProcessor = null;       // ScriptProcessorNode
+let captureBuffer = [];            // accumulated Float32 samples this utterance
 
-function saveSpeakers() {
-  localStorage.setItem("friday_speakers", JSON.stringify(speakersMap));
+function loadSpeakerProfiles() {
+  try { return JSON.parse(localStorage.getItem("eagle_speakers") || "[]"); } catch (_) { return []; }
 }
 
-async function initAudioStream() {
-  if (audioStream) return;
-  try {
-    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (e) {
-    console.warn("MediaRecorder unavailable:", e.message);
+function b64ToUint8(b64) {
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+function resampleTo16k(float32, fromRate) {
+  if (fromRate === 16000) return float32;
+  const ratio = fromRate / 16000;
+  const outLen = Math.floor(float32.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const srcIdx = i * ratio;
+    const lo = Math.floor(srcIdx);
+    const hi = Math.min(lo + 1, float32.length - 1);
+    const frac = srcIdx - lo;
+    out[i] = float32[lo] * (1 - frac) + float32[hi] * frac;
   }
+  return out;
 }
 
-function startRecording() {
-  if (!audioStream || !window.MediaRecorder) return;
-  audioChunks = [];
+async function getEagle() {
+  if (eagleInstance) return eagleInstance;
+  const accessKey = localStorage.getItem("picovoice_access_key");
+  if (!accessKey || typeof EagleWeb === "undefined") return null;
   try {
-    mediaRecorder = new MediaRecorder(audioStream);
-    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
-    mediaRecorder.start();
+    eagleInstance = await EagleWeb.Eagle.create(accessKey, { publicPath: "/eagle/eagle_params.pv" });
   } catch (e) {
-    console.warn("MediaRecorder start failed:", e.message);
+    console.warn("Eagle init failed:", e.message);
   }
+  return eagleInstance;
 }
 
-function stopRecording() {
-  return new Promise((resolve) => {
-    if (!mediaRecorder || mediaRecorder.state === "inactive") { resolve(null); return; }
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
-      resolve(blob);
-    };
-    mediaRecorder.stop();
-  });
+function startCapture() {
+  captureBuffer = [];
+  if (!captureCtx || !captureProcessor) return;
+  captureProcessor.onaudioprocess = (e) => {
+    const chunk = e.inputBuffer.getChannelData(0);
+    captureBuffer.push(new Float32Array(chunk));
+  };
 }
 
-async function identifySpeaker(audioBlob) {
-  const profileIds = Object.keys(speakersMap);
-  if (!profileIds.length || !audioBlob || audioBlob.size < 1000) return null;
+function stopCapture() {
+  if (captureProcessor) captureProcessor.onaudioprocess = null;
+  if (!captureBuffer.length) return null;
+  const total = captureBuffer.reduce((n, c) => n + c.length, 0);
+  const merged = new Float32Array(total);
+  let offset = 0;
+  for (const chunk of captureBuffer) { merged.set(chunk, offset); offset += chunk.length; }
+  captureBuffer = [];
+  return merged;
+}
+
+async function identifySpeaker() {
+  const profiles = loadSpeakerProfiles();
+  if (!profiles.length) return null;
+  const eagle = await getEagle();
+  if (!eagle) return null;
+
+  const float32 = stopCapture();
+  if (!float32 || float32.length < 1000) return null;
+
+  const rate = captureCtx ? captureCtx.sampleRate : 44100;
+  const resampled = resampleTo16k(float32, rate);
+  if (resampled.length < eagle.minProcessSamples) return null;
+
+  const pcm = new Int16Array(resampled.length);
+  for (let i = 0; i < resampled.length; i++) {
+    pcm[i] = Math.max(-32768, Math.min(32767, Math.round(resampled[i] * 32768)));
+  }
+
+  const eagleProfiles = profiles.map(p => ({ bytes: b64ToUint8(p.profileBytes) }));
   try {
-    const res = await fetch(`/identify?profiles=${profileIds.join(",")}`, {
-      method: "POST",
-      headers: { "Content-Type": audioBlob.type || "audio/webm" },
-      body: audioBlob,
-    });
-    const { profileId, score } = await res.json();
-    if (profileId && score > 0.5) return speakersMap[profileId] || null;
+    const scores = await eagle.process(pcm, eagleProfiles);
+    const best = scores.indexOf(Math.max(...scores));
+    if (scores[best] > 0.5) return profiles[best].name;
   } catch (e) {
-    console.warn("Speaker ID failed:", e.message);
+    console.warn("Eagle identify error:", e.message);
   }
   return null;
+}
+
+async function initCaptureNode(stream) {
+  try {
+    captureCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (captureCtx.state === "suspended") await captureCtx.resume().catch(() => {});
+    const source = captureCtx.createMediaStreamSource(stream);
+    captureProcessor = captureCtx.createScriptProcessor(1024, 1, 1);
+    source.connect(captureProcessor);
+    captureProcessor.connect(captureCtx.destination);
+  } catch (e) {
+    console.warn("Capture node init failed:", e.message);
+  }
 }
 
 // Show who's speaking in the status bar (briefly).
 function showSpeaker(name) {
   if (!name) return;
-  const prev = statusEl.textContent;
   statusEl.textContent = `${name} — Listening…`;
   setTimeout(() => { if (statusEl.textContent === `${name} — Listening…`) statusEl.textContent = "Listening…"; }, 2000);
 }
@@ -313,7 +358,7 @@ function waitForSpeechEnd() {
 function startListening() {
   if (!active || recognizing) return;
   recognition = buildRecognition();
-  startRecording(); // capture audio for speaker identification
+  startCapture(); // begin accumulating PCM for Eagle identification
   try {
     recognition.start();
   } catch (_) { /* already starting */ }
@@ -340,10 +385,9 @@ function buildRecognition() {
       recognition.stop();
       const text = finalText.trim();
       addBubble("user", text);
-      // Identify speaker and chat in parallel — identification is fast (~500ms)
-      // and Claude response is slow (~2-5s), so they effectively run concurrently.
-      stopRecording().then(async (audioBlob) => {
-        const name = await identifySpeaker(audioBlob);
+      // Identify speaker in-browser via Eagle, then chat.
+      // Eagle runs in ~50ms so we don't need parallel execution.
+      identifySpeaker().then(name => {
         if (name) { currentSpeaker = name; showSpeaker(name); }
         askFriday(text, currentSpeaker);
       });
@@ -380,9 +424,16 @@ function startSession() {
   history.length = 0;
   transcriptEl.innerHTML = "";
 
-  // Unlock audio and init mic stream within the tap gesture (iOS requires this).
+  // Unlock audio within the tap gesture (iOS requires this).
   unlockAudio();
-  initAudioStream();
+
+  // Init mic stream for Eagle PCM capture (Eagle speakers in localStorage → attempt ID).
+  const hasSpeakers = loadSpeakerProfiles().length > 0;
+  if (hasSpeakers && !captureCtx) {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(stream => initCaptureNode(stream))
+      .catch(e => console.warn("Mic for Eagle unavailable:", e.message));
+  }
 
   startListening();
 }
