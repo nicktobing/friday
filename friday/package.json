@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "googleapis": "^173.0.0"
   }
 }
