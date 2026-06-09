@@ -422,11 +422,31 @@ function startListening() {
   } catch (_) { /* already starting */ }
 }
 
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
 function buildRecognition() {
   const r = new SpeechRecognition();
   r.lang = "en-US";
-  r.continuous = false;     // iOS Safari stops after each utterance — we restart on end
   r.interimResults = true;
+  // Desktop: continuous keeps mic open across pauses; a silence timer submits.
+  // iOS Safari: continuous causes issues so we keep false and restart on end.
+  r.continuous = !isIOS;
+
+  let accumulated = "";   // finals collected this turn (desktop only)
+  let silenceTimer = null;
+
+  function submit(text) {
+    if (!text.trim() || !active) return;
+    clearTimeout(silenceTimer);
+    silenceTimer = null;
+    accumulated = "";
+    try { r.stop(); } catch (_) {}
+    addBubble("user", text.trim());
+    identifySpeaker().then(name => {
+      if (name) { currentSpeaker = name; showSpeaker(name); }
+      askFriday(text.trim(), currentSpeaker);
+    });
+  }
 
   r.onstart = () => { recognizing = true; setState("listening", "Listening…"); };
 
@@ -440,15 +460,14 @@ function buildRecognition() {
     }
     if (interim) setState("listening", interim);
     if (finalText.trim()) {
-      recognition.stop();
-      const text = finalText.trim();
-      addBubble("user", text);
-      // Identify speaker in-browser via Eagle, then chat.
-      // Eagle runs in ~50ms so we don't need parallel execution.
-      identifySpeaker().then(name => {
-        if (name) { currentSpeaker = name; showSpeaker(name); }
-        askFriday(text, currentSpeaker);
-      });
+      if (isIOS) {
+        submit(finalText.trim());
+      } else {
+        accumulated += (accumulated ? " " : "") + finalText.trim();
+        clearTimeout(silenceTimer);
+        // Submit after 1.5 s of silence
+        silenceTimer = setTimeout(() => submit(accumulated), 1500);
+      }
     }
   };
 
@@ -456,14 +475,17 @@ function buildRecognition() {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
       stopSession("Microphone blocked. Allow mic access and reload.");
     }
-    // "no-speech" / "aborted" are normal — onend will restart.
   };
 
   r.onend = () => {
     recognizing = false;
-    // Restart only if idle (not thinking/speaking). Delay to debounce rapid loops
-    // caused by iOS ending recognition before the audio session is fully released.
-    if (active && document.body.className === "listening") {
+    if (!active) return;
+    if (!isIOS && accumulated.trim()) {
+      // Recognition ended while we still had text — submit it now
+      submit(accumulated);
+      return;
+    }
+    if (document.body.className === "listening") {
       setTimeout(startListening, 300);
     }
   };
