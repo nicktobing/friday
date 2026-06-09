@@ -347,7 +347,7 @@ app.post("/chat", async (req, res) => {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")?.content || "";
     const memoryContext = await searchMemories(lastUserMsg, memUserId);
     const speakerContext = speakerName
-      ? `\n\n## Current speaker: ${speakerName}\nYou are speaking with ${speakerName}. Address them by name naturally.`
+      ? `\n\n## Current speaker: ${speakerName}\nYou have recognised this person's voice using voice fingerprint recognition. You know they are ${speakerName}. If asked how you know who is speaking, say you recognised their voice — not that they told you.`
       : "";
     const systemWithMemory = SYSTEM_PROMPT + speakerContext + memoryContext;
 
