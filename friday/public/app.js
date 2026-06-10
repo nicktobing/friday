@@ -443,7 +443,11 @@ function buildRecognition() {
     try { r.stop(); } catch (_) {}
     addBubble("user", text.trim());
     identifySpeaker().then(name => {
-      if (name) { currentSpeaker = name; showSpeaker(name); }
+      if (name) {
+        currentSpeaker = name;
+        showSpeaker(name);
+        localStorage.setItem("friday_last_speaker", name);
+      }
       askFriday(text.trim(), currentSpeaker);
     });
   }
@@ -500,9 +504,13 @@ function startSession() {
     return;
   }
   active = true;
-  currentSpeaker = null;
   history.length = 0;
   transcriptEl.innerHTML = "";
+
+  // Restore last known speaker immediately — voice ID confirms on first utterance
+  const lastSpeaker = localStorage.getItem("friday_last_speaker");
+  const profiles = loadSpeakerProfiles();
+  currentSpeaker = (lastSpeaker && profiles.some(p => p.name === lastSpeaker)) ? lastSpeaker : null;
 
   // Unlock audio within the tap gesture (iOS requires this).
   unlockAudio();

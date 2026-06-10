@@ -347,7 +347,7 @@ app.post("/chat", async (req, res) => {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")?.content || "";
     const memoryContext = await searchMemories(lastUserMsg, memUserId);
     const speakerContext = speakerName
-      ? `\n\n## Current speaker: ${speakerName}\nYou have recognised this person's voice using voice fingerprint recognition. You know they are ${speakerName}. If asked how you know who is speaking, say you recognised their voice — not that they told you.`
+      ? `\n\n## Confirmed identity: ${speakerName}\nVoice fingerprint recognition has confirmed this is ${speakerName}. You are certain of this — do not hedge, qualify, or say you cannot verify who they are. If asked how you know, say you recognised their voice. Greet and address them as ${speakerName} naturally.`
       : "";
     const systemWithMemory = SYSTEM_PROMPT + speakerContext + memoryContext;
 
