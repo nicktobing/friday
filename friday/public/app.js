@@ -462,7 +462,16 @@ function buildRecognition() {
       if (event.results[i].isFinal) finalText += t;
       else interim += t;
     }
-    if (interim) setState("listening", interim);
+    if (interim) {
+      setState("listening", interim);
+      // Reset the silence timer on interim too: Chrome fires finals in chunks
+      // with gaps where only interims arrive. Without this, a gap > 1.5s submits
+      // an incomplete sentence. True silence = no activity at all for 1.5s.
+      if (!isIOS && accumulated) {
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => submit(accumulated), 1500);
+      }
+    }
     if (finalText.trim()) {
       if (isIOS) {
         submit(finalText.trim());
