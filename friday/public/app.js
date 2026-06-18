@@ -546,3 +546,159 @@ orb.addEventListener("click", () => {
     stopSession();
   }
 });
+
+// ---------- In-app voice enrolment ----------
+// Records a 25 s sample and saves a voiceprint to localStorage on THIS page, so
+// the profile is in the exact origin/storage Friday reads from — no separate
+// enrol page, no tab-switching, no localStorage mismatch.
+(function setupEnrolment() {
+  const ENROLL_SEC = 25, MIN_SEC = 8;
+  const overlay  = document.getElementById("enrollOverlay");
+  const openBtn  = document.getElementById("enrollBtn");
+  const closeBtn = document.getElementById("enrollClose");
+  const nameInp  = document.getElementById("enrollName");
+  const recBtn   = document.getElementById("enrollRecord");
+  const timerEl  = document.getElementById("enrollTimer");
+  const progWrap = document.querySelector(".enroll-progress-wrap");
+  const progBar  = document.getElementById("enrollProgress");
+  const statusEl2 = document.getElementById("enrollStatus");
+  const listEl   = document.getElementById("enrollList");
+  if (!overlay) return;
+
+  let recording = false, encStream = null, encCtx = null, encProc = null;
+  let buf = [], secs = 0, ticker = null, srate = 44100;
+
+  function setStatus(msg, cls = "") { statusEl2.textContent = msg; statusEl2.className = "enroll-status " + cls; }
+
+  function renderList() {
+    const profiles = loadSpeakerProfiles();
+    listEl.innerHTML = profiles.length
+      ? profiles.map((p, i) => `<span class="enroll-chip">${p.name} <button data-idx="${i}">remove</button></span>`).join("")
+      : `<span class="enroll-status">No voices enrolled yet.</span>`;
+  }
+
+  listEl.addEventListener("click", (e) => {
+    const idx = e.target.getAttribute && e.target.getAttribute("data-idx");
+    if (idx === null || idx === undefined) return;
+    const profiles = loadSpeakerProfiles();
+    const removed = profiles.splice(Number(idx), 1)[0];
+    localStorage.setItem("friday_voice_profiles", JSON.stringify(profiles));
+    if (removed && localStorage.getItem("friday_last_speaker") === removed.name) {
+      localStorage.removeItem("friday_last_speaker");
+      if (currentSpeaker === removed.name) currentSpeaker = null;
+    }
+    renderList();
+  });
+
+  function openPanel() {
+    if (active) stopSession();            // free the mic before enrolling
+    overlay.hidden = false;
+    setStatus("Enter your name and tap Start Recording.");
+    renderList();
+  }
+
+  function closePanel() {
+    if (recording) stopRecording(true);
+    overlay.hidden = true;
+  }
+
+  openBtn.addEventListener("click", openPanel);
+  closeBtn.addEventListener("click", closePanel);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closePanel(); });
+
+  recBtn.addEventListener("click", async () => {
+    if (recording) { stopRecording(); return; }
+    const name = nameInp.value.trim();
+    if (!name) { setStatus("Please enter your name first.", "err"); return; }
+
+    try {
+      encStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (_) {
+      setStatus("Mic access denied. Allow the microphone and try again.", "err");
+      return;
+    }
+
+    encCtx = new (window.AudioContext || window.webkitAudioContext)();
+    srate = encCtx.sampleRate;
+    const source = encCtx.createMediaStreamSource(encStream);
+    encProc = encCtx.createScriptProcessor(1024, 1, 1);
+    buf = [];
+    encProc.onaudioprocess = (e) => { if (recording) buf.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+    source.connect(encProc);
+    encProc.connect(encCtx.destination);
+
+    recording = true;
+    secs = 0;
+    recBtn.textContent = "Stop Early";
+    recBtn.classList.add("recording");
+    timerEl.classList.add("show", "pulse");
+    timerEl.textContent = "0s";
+    progWrap.classList.add("show");
+    progBar.style.width = "0%";
+    setStatus("Speak naturally for 25 seconds…");
+
+    ticker = setInterval(() => {
+      secs++;
+      timerEl.textContent = secs + "s";
+      progBar.style.width = Math.min(100, Math.round(secs / ENROLL_SEC * 100)) + "%";
+      if (secs >= ENROLL_SEC) stopRecording();
+    }, 1000);
+  });
+
+  function teardown() {
+    clearInterval(ticker);
+    try { encProc.disconnect(); encProc.onaudioprocess = null; } catch (_) {}
+    try { encCtx.close(); } catch (_) {}
+    try { encStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+    recBtn.classList.remove("recording");
+    timerEl.classList.remove("pulse");
+  }
+
+  function stopRecording(cancelled = false) {
+    if (!recording) return;
+    recording = false;
+    teardown();
+
+    if (cancelled) { timerEl.classList.remove("show"); progWrap.classList.remove("show"); recBtn.textContent = "Start Recording"; return; }
+
+    const name = nameInp.value.trim();
+    if (secs < MIN_SEC) {
+      timerEl.classList.remove("show");
+      progWrap.classList.remove("show");
+      setStatus(`Only ${secs}s — please record at least 10 seconds.`, "err");
+      recBtn.textContent = "Start Recording";
+      return;
+    }
+
+    setStatus("Computing voice fingerprint…");
+    recBtn.disabled = true;
+
+    const total = buf.reduce((s, c) => s + c.length, 0);
+    const flat = new Float32Array(total);
+    let off = 0;
+    for (const c of buf) { flat.set(c, off); off += c.length; }
+
+    setTimeout(() => {
+      const tmpl = computeTemplate(flat, srate);
+      recBtn.disabled = false;
+      recBtn.textContent = "Start Recording";
+      timerEl.classList.remove("show");
+      progWrap.classList.remove("show");
+      if (!tmpl) { setStatus("Couldn't read enough speech. Try again and keep talking.", "err"); return; }
+
+      const profiles = loadSpeakerProfiles();
+      const entry = { name, templateB64: templateToB64(tmpl), sampleRate: srate };
+      const idx = profiles.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+      if (idx >= 0) profiles[idx] = entry; else profiles.push(entry);
+      localStorage.setItem("friday_voice_profiles", JSON.stringify(profiles));
+
+      // Make it active immediately on this very page — no reload, no tab switch.
+      currentSpeaker = name;
+      localStorage.setItem("friday_last_speaker", name);
+
+      nameInp.value = "";
+      setStatus(`${name} enrolled! Friday will recognise your voice now.`, "ok");
+      renderList();
+    }, 50);
+  }
+})();
